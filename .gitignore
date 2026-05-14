@@ -1,0 +1,15 @@
+# Large dirs
+3_output/
+cache/
+vis/
+1_input/
+overnight_logs/
+results/
+archive/
+__pycache__/
+*.pyc
+*.ply
+*.pth
+*.npz
+*.npy
+.DS_Store
