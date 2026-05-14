@@ -4,7 +4,7 @@ cache/
 vis/
 1_input/
 overnight_logs/
-results/
+/results/
 archive/
 __pycache__/
 *.pyc
