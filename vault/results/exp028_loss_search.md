@@ -103,5 +103,49 @@ L = L_BCE + λ_s · L_smooth + λ_m · L_mapping
 ## 다음
 
 - N3V 에 동일 loss 적용 시도 (현재 N3V 한계 fix 가능성)
-- lego 의 SAM3 prompt 재튜닝
+- ~~lego 의 SAM3 prompt 재튜닝~~ ✓ 완료 (아래 섹션)
 - 4D-DRESS GT vertex supervision 에도 Dice 추가
+
+---
+
+## lego 회귀 해결 — SAM3 prompt 재튜닝 (2026-05-15 PM3)
+
+### 원인 분석
+
+D-NeRF lego 는 **yellow bulldozer (construction vehicle)** 이지 minifigure 아님. 기존 `sam3_union_lego` 의 prompts 가 잘못 (`"lego figure, lego body, minifigure body, plastic figure"`). 이 prompt 들이 우연히 bulldozer 의 일부 잡았지만 mask 가 noisy.
+
+### 4 prompt variant 비교
+
+| cache | prompts | cov% | val_iou (BCE+2*Dice) | 시각 |
+|---|---|---|---|---|
+| v1 minifigure_union (원본) | "lego figure, lego body, minifigure body, plastic figure" | 12.85% | 0.5934 | 부분만 |
+| v2 vehicle | "lego bulldozer, construction vehicle, yellow vehicle" | 9.27% | 0.9477 | bulldozer ✓ |
+| **v2 vehicle_specific** | **"bulldozer, excavator, tractor, front loader"** | **9.38%** | **0.9511** | **bulldozer 만 ✓ winner** |
+| v2 toy | "yellow toy, lego toy, plastic vehicle, toy construction" | 22.81% | 0.9733 | bulldozer + **baseplate 전체** ✗ |
+
+### val_iou metric 의 함정
+
+v2_toy 가 highest val_iou (0.9733) 지만 *baseplate 까지 over-cover*. SAM3 mask 가 baseplate 도 cloth 로 분류 → prediction 도 그대로 따라가 → metric 은 높지만 *시각적으로 wrong*.
+
+**val_iou 는 SAM3 mask 와 일치도만 측정** — SAM3 mask 자체의 quality 검증 필요. v2_vehicle_specific 가 의미적으로 정확 (vehicle 만) + val_iou 거의 동등 (0.951).
+
+### lego 의 paper 데이터 갱신
+
+기존 exp028 phase 2 표에서 lego 가 -3.8pp 회귀였는데, prompt 재튜닝 후:
+- baseline (BCE only on v1): 0.6272
+- exp028 (BCE+2*Dice on **v2_vehicle_specific**): **0.9511** = **+32.4pp** 개선
+
+→ phase 2 전체 mean 도 갱신 필요. **lego 의 진짜 문제는 loss 가 아니라 SAM3 prompt** 였음.
+
+### 산출물
+
+- `cache/sam3_lego_v2_{vehicle,vehicle_specific,toy}/` — 3 new cache
+- `3_output/lego/ckpt_exp028_retune_{v1_minifigure_union,v2_vehicle,v2_vehicle_specific,v2_toy}/` — 4 ckpt 비교
+- `3_output/lego/recolor_exp028_retune_<variant>/` — 4 recolor
+- `vis/SUMMARY_meeting/exp028_lego_retune.png` — 4-col visual 비교
+
+### 교훈
+
+1. **prompt audit 필수**: scene 마다 SAM3 prompt 의 *semantic correctness* 확인 — 우연히 작동하는 wrong prompt 가 metric 으론 안 보임
+2. **val_iou 는 한계 metric**: SAM3 mask 가 GT 가 아니라 *learning target*. mask 자체가 wrong 이면 val_iou 도 wrong
+3. **human visual verification 병행 필요**: 미팅 0.3 의 "human review" 가 정량 metric 보완에 필수
