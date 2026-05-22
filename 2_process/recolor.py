@@ -68,6 +68,8 @@ def main() -> None:
     ap.add_argument("--threshold", type=float, default=0.5)
     ap.add_argument("--target-class", type=int, default=0,
                     help="for K>1 cloth_logit: which class to recolor (0=cloth/first explicit class)")
+    ap.add_argument("--per-class-bce", action="store_true",
+                    help="for K>1: treat classes as independent BCE (sigmoid per class) instead of softmax")
     ap.add_argument("--num-frames", type=int, default=4, help="frames per cam to render")
     ap.add_argument("--out", required=True)
     ap.add_argument("--device", default="cuda:0")
@@ -98,6 +100,9 @@ def main() -> None:
     K = cl.shape[1] if cl.dim() > 1 else 1
     if K == 1:
         cloth_prob = torch.sigmoid(cl).squeeze(-1)
+    elif args.per_class_bce:
+        # per-class independent BCE: pick target class via sigmoid (multi-label)
+        cloth_prob = torch.sigmoid(cl[:, args.target_class])
     else:
         # multi-class: softmax → select target class probability, mask where class wins
         sm = torch.softmax(cl, dim=1)
@@ -242,7 +247,12 @@ def main() -> None:
                 # Mask overlay (cloth_logit channel rendered if available)
                 cl_img = r1.get("cloth_logit")
                 if cl_img is not None:
-                    mask_render = (torch.sigmoid(cl_img.detach()) > 0.5).cpu().numpy()
+                    # for K>1 multi-class, pick the target channel
+                    if cl_img.dim() == 3:  # (H, W, K)
+                        cl_ch = cl_img[..., args.target_class]
+                    else:
+                        cl_ch = cl_img
+                    mask_render = (torch.sigmoid(cl_ch.detach()) > 0.5).cpu().numpy()
                     overlay = rgb_o.astype(np.float32).copy()
                     overlay[mask_render] = (overlay[mask_render] * 0.55
                                             + np.array([0, 255, 0], dtype=np.float32) * 0.45)
