@@ -12,12 +12,19 @@ tags: [backup, manifest]
 
 `/NHNHOME/WORKSPACE/0526040060_B/research/backup_dnerf_essentials.zip`
 
-**생성 완료** (2026-05-15 16:21):
-- **3.36 GB** compressed (4.17 GB raw)
-- **9,526 files** total
-  - `cloth_recolor/`: 6,338 files
+**생성 완료** (2026-05-15 16:21, **재빌드 22:02 — exp028 + lego retune 포함**):
+- **4.02 GB** compressed (4.68 GB raw)
+- **10,105 files** total (+579 from v1)
+  - `cloth_recolor/`: 6,917 files
   - `4DGaussians/`: 3,186 files
   - root: `CLAUDE.md`, `README.md`
+
+**v2 추가분** (vs v1):
+- exp028 (8 D-NeRF scene × ckpt_exp028_best + baseline_bce)
+- exp028 phase 1 (jumpingjacks 8 config sweep)
+- lego prompt retune (4 variants × ckpt + recolor)
+- 3 new SAM3 lego caches (`sam3_lego_v2_{vehicle, vehicle_specific, toy}`)
+- vault note `exp028_loss_search.md`
 
 전체 파일 리스트: [[010_BACKUP_FILE_LIST]] (`010_BACKUP_FILE_LIST.txt`)
 
@@ -58,7 +65,11 @@ tags: [backup, manifest]
 - D-NeRF 8 scenes: `bouncingballs`, `hellwarrior`, `hook`, `jumpingjacks`, `lego`, `mutant`, `standup`, `trex`
 - 실험 sweep: `exp022_thresh_sweep` (threshold 6단계 × 2 scene), `exp024_edge`, `exp024_edge_sam3gt`
 
-### `cache/` 포함 (36개 dir)
+### `cache/` 포함 (39개 dir, +3 from v1)
+
+- `sam3_lego_v2_vehicle/`, `sam3_lego_v2_vehicle_specific/`, `sam3_lego_v2_toy/` — exp028 lego retune 결과 (vehicle_specific 이 winner)
+- (이하 v1 동일)
+
 
 - `sam3_dnerf/` — single prompt baseline 8 scenes
 - `sam3_union_<scene>/` × 8 — multi-prompt union
