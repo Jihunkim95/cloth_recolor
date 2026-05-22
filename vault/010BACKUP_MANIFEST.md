@@ -12,18 +12,21 @@ tags: [backup, manifest]
 
 `/NHNHOME/WORKSPACE/0526040060_B/research/backup_dnerf_essentials.zip`
 
-**생성 완료** (2026-05-15 16:21, **재빌드 22:02 — exp028 + lego retune 포함**):
-- **4.02 GB** compressed (4.68 GB raw)
-- **10,105 files** total (+579 from v1)
-  - `cloth_recolor/`: 6,917 files
+**생성 완료** (재빌드 22:27, **v3 — exp028 + lego retune, IDE 4GB 호환**):
+- **3.985 GB** compressed (4.67 GB raw) ← IDE 4 GB 다운로드 한계 아래로
+- **9,964 files** total
+  - `cloth_recolor/`: 6,776 files
   - `4DGaussians/`: 3,186 files
   - root: `CLAUDE.md`, `README.md`
 
-**v2 추가분** (vs v1):
-- exp028 (8 D-NeRF scene × ckpt_exp028_best + baseline_bce)
-- exp028 phase 1 (jumpingjacks 8 config sweep)
-- lego prompt retune (4 variants × ckpt + recolor)
-- 3 new SAM3 lego caches (`sam3_lego_v2_{vehicle, vehicle_specific, toy}`)
+**v3 = v2 - ablation ckpts** (의도적 제외):
+- ❌ `ckpt_exp028v2_*` (8개, jumpingjacks phase 1 sweep) — winner 만 `ckpt_exp028_best` 에 보존되어 redundant
+- ❌ `ckpt_exp028_baseline_bce` (7개) — `ckpt_baseline_hardBCE` 와 동일, 비교 수치는 vault note 에 있음
+- 압축 강도: `-9` (max, was `-1` in v2)
+
+**v3 포함 (main result)**:
+- exp028 winner (8 D-NeRF scene × `ckpt_exp028_best/` BCE+2*Dice)
+- lego prompt retune 4 variants × ckpt + recolor + 3 new SAM3 cache
 - vault note `exp028_loss_search.md`
 
 전체 파일 리스트: [[010_BACKUP_FILE_LIST]] (`010_BACKUP_FILE_LIST.txt`)
