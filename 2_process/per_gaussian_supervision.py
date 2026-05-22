@@ -45,6 +45,8 @@ def main() -> None:
     ap.add_argument("--out", required=True, help="output ckpt dir (new cloth_logit, copy of other params)")
     ap.add_argument("--iters", type=int, default=2000, help="Adam steps on cloth_logit only")
     ap.add_argument("--lr", type=float, default=0.05)
+    ap.add_argument("--grid-window", type=int, default=0,
+                    help="window radius for mask lookup; 0=center pixel, k=1→3x3 mean, k=2→5x5 mean")
     ap.add_argument("--device", default="cuda:0")
     args = ap.parse_args()
 
@@ -129,7 +131,16 @@ def main() -> None:
             in_view = in_front & (ndc[:, 0].abs() < 1) & (ndc[:, 1].abs() < 1)
             px = ((ndc[:, 0] + 1) * 0.5 * W_m).long().clamp(0, W_m - 1)
             py = ((ndc[:, 1] + 1) * 0.5 * H_m).long().clamp(0, H_m - 1)
-            v = masks_t[i, py, px]              # (N,)
+            if args.grid_window > 0:
+                k = args.grid_window
+                offs = torch.arange(-k, k + 1, device=args.device)
+                dy, dx = torch.meshgrid(offs, offs, indexing="ij")
+                dy = dy.flatten(); dx = dx.flatten()
+                py_w = (py.unsqueeze(-1) + dy.unsqueeze(0)).clamp(0, H_m - 1)
+                px_w = (px.unsqueeze(-1) + dx.unsqueeze(0)).clamp(0, W_m - 1)
+                v = masks_t[i, py_w, px_w].float().mean(dim=-1)
+            else:
+                v = masks_t[i, py, px]              # (N,)
             accum = accum + torch.where(in_view, v, torch.zeros_like(v))
             count = count + in_view.float()
             if i % 50 == 0:

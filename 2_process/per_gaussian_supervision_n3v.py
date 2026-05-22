@@ -44,6 +44,8 @@ def main() -> None:
                     help="per-frame 3D cluster: only count if Gaussian deformed position is near in-mask cluster centroid")
     ap.add_argument("--temporal-k", type=float, default=3.0,
                     help="MAD multiplier for per-frame cluster radius")
+    ap.add_argument("--grid-window", type=int, default=0,
+                    help="window radius for mask lookup; 0=center pixel (current), k=1→3x3 mean, k=2→5x5 mean")
     ap.add_argument("--device", default="cuda:0")
     args = ap.parse_args()
 
@@ -154,7 +156,19 @@ def main() -> None:
             mH, mW = mask.shape
             px = ((ndc[:, 0] + 1) * 0.5 * mW).long().clamp(0, mW - 1)
             py = ((ndc[:, 1] + 1) * 0.5 * mH).long().clamp(0, mH - 1)
-            v = mask[py, px]
+            if args.grid_window > 0:
+                # Window-average mask lookup: soft_target = (#True in window) / (window pixels)
+                k = args.grid_window
+                # Build offset grid and gather
+                offs = torch.arange(-k, k + 1, device=args.device)
+                dy, dx = torch.meshgrid(offs, offs, indexing="ij")
+                dy = dy.flatten(); dx = dx.flatten()
+                window_size = (2 * k + 1) ** 2
+                py_w = (py.unsqueeze(-1) + dy.unsqueeze(0)).clamp(0, mH - 1)
+                px_w = (px.unsqueeze(-1) + dx.unsqueeze(0)).clamp(0, mW - 1)
+                v = mask[py_w, px_w].mean(dim=-1)
+            else:
+                v = mask[py, px]
 
             # temporal coherent: per-frame 3D cluster of in-mask Gaussian, check if my deformed pos is near
             if args.temporal_coherent:
