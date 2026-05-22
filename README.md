@@ -166,3 +166,4 @@ python 2_process/recolor.py \
 - `vault/009Meeting_Response_2026-05-15.md` — current experimental status
 - `vault/010BACKUP_MANIFEST.md` — what's in `backup_dnerf_essentials.zip`
 - `docs/REPORT.md` — full ablation findings (exp001~027)
+# cloth_recolor
