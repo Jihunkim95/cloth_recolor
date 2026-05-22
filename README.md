@@ -1,97 +1,168 @@
 # ClothSplat — Text-Driven Garment Recoloring in 4D Gaussian Splatting
 
-*(가제, 2026-05-13 확정. 자세한 paper outline: `vault/005Paper_outline.md`.)*
-
-Mask-aware 4D-GS that learns a per-Gaussian `cloth_logit` channel under SAM 3
-supervision plus memory-based **soft-label calibration**, then HSV-swaps the hue
-of cloth Gaussians to recolor clothing across time and viewpoint.
-
-## Pipeline (Input → Process → Output → Viewer)
+Mask-aware 4D Gaussian Splatting that learns a per-Gaussian `cloth_logit` from
+SAM3 text-prompt masks, then HSV-swaps the hue of cloth Gaussians to recolor
+garments across time and viewpoint — **with no SAM3 inference at runtime**
+(30× faster than the naive baseline).
 
 ```
-1_input/dnerf/<scene>/                  ← D-NeRF Blender data (symlink)
-        │
-        ▼
-2_process/                              ← scripts
-   sam3_cache.py    : SAM 3 mask caching
-   train.sh         : 4DGaussians + cloth_logit + soft-cal training
-   recolor.py/.sh   : HSV recolor + PLY/PNG export
-        │
-        ▼
-3_output/<scene>/
-   ckpt_baseline_hardBCE/               ← 4D-GS ckpt (cloth_logit, no soft-cal)
-   ckpt_softcal_best/                   ← 4D-GS ckpt (best soft-cal variant)
-   ckpt_softcal_sweepbest/              ← 4D-GS ckpt (best of hyperparam sweep)
-   recolor_baseline/                    ← 16 PNG panels + recolored.ply
-   recolor_softcal_best/
-   recolor_softcal_sweepbest/
-        │
-        ▼
-4_viewer/
-   viewer.py        : interactive viser/nerfview viewer (D-NeRF + multipleview)
-   render_video.sh  : offline per-frame PNG + mp4 via 4DGaussians/render.py
+[D-NeRF video] ─┐
+                ├─→ 4DGS (Stage 1) ─→ ckpt_baseline
+[SAM3 prompt] ──┘                          │
+                                           ▼
+                            per-Gaussian projection (Stage 3, exp010)
+                                           │
+                                           ▼
+                                     cloth_logit ∈ ℝ^N
+                                           │
+                                  HSV swap (Stage 4)
+                                           ▼
+                                     recolored garment
 ```
 
-## Quick start
-
-### Train one scene (clothing-aware 4D-GS)
+## Quick start (from fresh clone)
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 ./2_process/train.sh jumpingjacks both
-# → 3_output/jumpingjacks/ckpt_softcal_<variant>_<MMDD_HHMM>/
+# 1. clone (+ sibling 4DGaussians fork required)
+git clone <THIS_REPO> cloth_recolor
+cd cloth_recolor
+
+# 2. install (conda env "clothsplat" + CUDA 12.8 + gsplat + SAM3 + DINOv3)
+./scripts/setup.sh
+
+# 3. activate + env vars (gsplat needs CUDA_HOME exported)
+conda activate clothsplat
+source ./scripts/env.sh
+
+# 4. fetch D-NeRF data (~530 MB)
+./scripts/download_data.sh
+
+# 5. full pipeline on jumpingjacks (~1 hour on B200)
+./scripts/run_jumpingjacks.sh
+# → 3_output/jumpingjacks/recolor_h220_t0.7/   (panels + recolored.ply)
+
+# 6. interactive viewer
+./scripts/viewer.sh jumpingjacks
+# open http://localhost:8080/ (SSH tunnel -L 8080:localhost:8080 if remote)
 ```
 
-### Recolor a trained ckpt
+## Pipeline (4 stages)
+
+| Stage | Script | Output | Time (B200) |
+|---|---|---|---|
+| 1. **Baseline 4DGS** train (RGB only) | `scripts/train_baseline.sh <scene>` | `ckpt_baseline_hardBCE/` | ~40 min |
+| 2. **SAM3 mask cache** (text prompt) | `scripts/sam3_cache.sh <scene> [prompt]` | `cache/sam3_*/<scene>/masks.npz` | 1-5 min |
+| 3. **Per-Gaussian projection** + BCE | `scripts/cloth_logit.sh <scene>` | `ckpt_exp010_per_gaussian/` | ~5 min |
+| 4. **HSV recolor** + render panels | `scripts/recolor.sh <scene> [hue] [τ]` | `recolor_h<hue>_t<τ>/{panels,ply}` | ~1 min |
+
+Each script is **idempotent** (skips if output exists) and prints the next
+command to run.
+
+## Repository layout
+
+```
+cloth_recolor/
+├── scripts/                    # one-shot entry points (this README references these)
+│   ├── setup.sh                # conda env + CUDA + 4DGaussians fork
+│   ├── env.sh                  # gsplat CUDA env vars (source this every shell)
+│   ├── download_data.sh        # D-NeRF Blender data
+│   ├── train_baseline.sh       # Stage 1
+│   ├── sam3_cache.sh           # Stage 2 (single or multi-prompt union)
+│   ├── cloth_logit.sh          # Stage 3 (exp010 breakthrough)
+│   ├── recolor.sh              # Stage 4
+│   ├── viewer.sh               # interactive viser viewer
+│   └── run_jumpingjacks.sh     # full pipeline demo
+├── 2_process/                  # python implementation
+│   ├── per_gaussian_supervision.py        # exp010 D-NeRF Stage 3
+│   ├── per_gaussian_supervision_multiclass.py  # exp025 K=N instances
+│   ├── exp027_soft_cal.py     # memory-based negative mining
+│   ├── recolor.py             # HSV swap + render panels
+│   ├── sam3_cache.py          # SAM3 mask cache (per-scene)
+│   ├── sam3_cache_union.py    # multi-prompt union variant
+│   ├── exp021_efficiency.py   # baseline vs ours wall-time
+│   └── edge_metric.py         # boundary IoU + Chamfer metric
+├── 4_viewer/
+│   └── viewer.py              # viser-based interactive 3D viewer
+├── vault/                     # Obsidian research log + experiment notes
+│   ├── 001연구_가이드북.md ~ 010BACKUP_MANIFEST.md
+│   └── results/exp001~027.md   # detailed per-experiment notes
+├── docs/                      # paper outline, REPORT, QnA
+└── 3_output/<scene>/          # trained ckpts + recolor results (gitignored)
+```
+
+**Sibling 4DGaussians fork** (cloned by `scripts/setup.sh`):
+- `4DGaussians/scene/gaussian_model.py` — `_cloth_logit (N, K)` parameter
+- `4DGaussians/gaussian_renderer/__init__.py` — gsplat 2nd-pass for cloth_logit
+- `4DGaussians/utils/soft_cal.py` — DINOv3 + memory bank (used by exp027)
+
+## Key contributions
+
+| # | Contribution | Reference |
+|---|---|---|
+| 1 | **Per-Gaussian projection supervision** (bypasses alpha-composit averaging) | `vault/results/exp010_per_gaussian_projection.md` |
+| 2 | **Spatial outlier filter** (training-time MAD) for cluttered scenes | `vault/results/exp015_n3v_train_time_spatial_filter.md` |
+| 3 | **30× inference speedup** (SAM3 removed from runtime) | `vault/results/exp021_efficiency.md` |
+| 4 | **Multi-instance K=N** (cloth/shoes/hat with per-class hue) | `vault/results/exp025_multiclass.md` |
+| 5 | **Boundary IoU + Chamfer metric** (SAM3 as pseudo-GT) | `vault/results/exp024_edge_metric.md` |
+| 6 | **Memory-based negative mining calibration** | `vault/results/exp027_soft_cal.md` |
+
+## Headline results (D-NeRF jumpingjacks)
+
+| Method | Inference / frame | Edge IoU ↑ | Chamfer ↓ (px) |
+|---|---|---|---|
+| baseline (4DGS + per-frame SAM3) | 180.2 ms | 0.121 | 12.06 |
+| **ours (exp010 per-Gaussian projection)** | **6.1 ms (30×)** | **0.253 (2.1×)** | **6.40 (½)** |
+
+Multi-instance demo (`vis/SUMMARY_meeting/exp025_v2_jumpingjacks_union.png`):
+hoodie → red / shorts → green / shoes → blue with one model, no inference-time SAM3.
+
+## Multi-class example
 
 ```bash
-./2_process/recolor.sh 3_output/jumpingjacks/ckpt_softcal_best 220 0.2
-# → recolor_*_h220_t0.2/{panel_*.png, recolored.ply, summary.json}
+# K=3 (hoodie/shorts/shoes) on jumpingjacks
+python 2_process/per_gaussian_supervision_multiclass.py \
+  --base-ckpt 3_output/jumpingjacks/ckpt_baseline_hardBCE --base-iter 20000 \
+  --scene jumpingjacks \
+  --sam3-caches cache/sam3_exp025_jumpingjacks_hoodie_union,cache/sam3_exp025_jumpingjacks_shorts,cache/sam3_exp025_jumpingjacks_shoes \
+  --class-names hoodie,shorts,shoes \
+  --out 3_output/jumpingjacks/ckpt_multiclass \
+  --spatial-filter 3.0
+
+# recolor target=0 (hoodie) red
+python 2_process/recolor.py \
+  --ckpt-dir 3_output/jumpingjacks/ckpt_multiclass --iter 20000 \
+  --hue 0 --threshold 0.4 --per-class-bce --target-class 0 \
+  --num-frames 4 --out 3_output/jumpingjacks/recolor_hoodie_red
 ```
 
-### View interactively
+## Limitations
 
-```bash
-python 4_viewer/viewer.py \
-  --ckpt-dir 3_output/jumpingjacks/ckpt_softcal_best \
-  --port 8080
-# open http://<host>:8080/
+- **Dynamic multi-view with cluttered background (Neural 3D Video)**: tested
+  but post-hoc cloth/non-cloth separation fails because the deformation MLP
+  couples cloth Gaussians with "trail" background Gaussians during 4DGS Stage 1
+  training. Documented in `vault/results/exp014~020`. Main paper results use
+  D-NeRF (8 scenes) and 4D-DRESS (8 takes) where this issue is absent.
+- **SAM3 single-prompt reliability**: for some prompts SAM3 fails on most
+  frames (e.g., "hoodie" fails 79% of frames on jumpingjacks). Workaround:
+  multi-prompt union via `scripts/sam3_cache.sh <scene> "p1,p2,p3"`.
+- **DINOv3 calibration (exp027 flavor b)**: single-frame DINOv3 patch
+  features insufficiently discriminate skin-vs-cloth boundary on
+  similar-color scenes. Multi-frame aggregation left to future work.
+
+## Citation
+
+```bibtex
+@misc{clothsplat2026,
+  title = {ClothSplat: Text-Driven Garment Recoloring in 4D Gaussian Splatting},
+  author = {Jihun Kim and others},
+  year = {2026},
+  note = {Manuscript in preparation}
+}
 ```
 
-### Offline render (PNG + mp4)
+## See also
 
-```bash
-./4_viewer/render_video.sh 3_output/jumpingjacks/ckpt_softcal_best
-# → <ckpt>/test/ours_14000/{renders,gt}/*.png + video_rgb.mp4
-```
-
-## What's in this repo
-
-| dir | purpose |
-|---|---|
-| `1_input/` | symlink to D-NeRF dataset (`4DGaussians/data/dnerf/data/`) |
-| `2_process/` | training + recolor scripts |
-| `3_output/` | 9 trained ckpts (3 scenes × 3 variants) + recolor results |
-| `4_viewer/` | interactive viewer + offline render |
-| `cache/sam3_dnerf/` | per-scene SAM 3 mask cache (`<scene>/masks.npz` + `meta.json`) |
-| `docs/` | `REPORT.md` — full ablation findings |
-| `archive/` | legacy 4D-DRESS attempts + sweep ckpts (122 GB, kept for provenance) |
-
-## Engine
-
-The actual 4D-GS implementation is `../4DGaussians/` (hustvl/4DGaussians + our
-mods: `_cloth_logit` parameter in `scene/gaussian_model.py`, gsplat 2nd-pass in
-`gaussian_renderer/__init__.py`, `utils/soft_cal.py`).
-This repo is the project layer that drives it for the recolor task.
-
-## Headline result
-
-| scene | hard-BCE PSNR | best soft-cal PSNR | Δ | cloth boundary |
-|---|---|---|---|---|
-| jumpingjacks | 33.91 | **34.08** (variant b) | +0.17 | over-cover 27.3% → 1.32% (target SAM3 1.93%) |
-| standup | 35.70 | 34.99 (variant a) | -0.71 | 53.1% → 36.0% (target 50%) |
-| hellwarrior | 28.28 | **28.92** (both) | +0.64 | 58.5% → 52.4% (target 60%) |
-
-Soft-cal collapses the hard-BCE 0/1 polarization (jumpingjacks: 17% ambiguous
-→ 6.5% near-cloth, with 97% of Gaussians correctly placed in mid-low range).
-See `docs/REPORT.md` for full numbers.
-# cloth_recolor
+- `vault/008Viewer_사용법.md` — detailed viewer guide
+- `vault/009Meeting_Response_2026-05-15.md` — current experimental status
+- `vault/010BACKUP_MANIFEST.md` — what's in `backup_dnerf_essentials.zip`
+- `docs/REPORT.md` — full ablation findings (exp001~027)
