@@ -13,5 +13,5 @@ __pycache__/
 *.npz
 *.npy
 .DS_Store
-vault/.obsidian/
-vault/.trash/
+# vault moved out of repo -> C:\Research\ComputerVision\4DGS_recolor\vault (external, git-untracked)
+vault/
